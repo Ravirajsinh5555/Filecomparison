@@ -1,0 +1,337 @@
+<!-- ============================================================
+ ========== pom.xml
+============================================================ -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>dynamic-message-framework</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>Dynamic Message Framework</name>
+
+    <properties>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <!-- Apache POI for Excel -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+    </dependencies>
+</project>
+
+<!-- ============================================================
+ ========== src/main/java/com/example/dynamic/MessageTestFramework.java
+============================================================ -->
+package com.example.dynamic;
+
+import java.util.*;
+import java.io.*;
+
+public class MessageTestFramework {
+    public static void main(String[] args) throws Exception {
+        if (args.length < 2) {
+            System.out.println("Usage: java MessageTestFramework <inputFile> <outputExcel>");
+            return;
+        }
+
+        String inputPath = args[0];
+        String outputPath = args[1];
+
+        String messageType = MessageTypeDetector.detectMessageType(inputPath);
+
+        List<InputMappingRow> mapping = InputMappingGenerator.generateMapping(inputPath, messageType);
+
+        List<TestCaseRow> testCases = new ArrayList<>();
+        testCases.addAll(TestCaseGenerator.generatePositiveCases(mapping));
+        testCases.addAll(NegativeTestGenerator.generateNegativeCases(mapping));
+
+        ExcelWriter.writeExcel(mapping, testCases, outputPath);
+
+        System.out.println("✅ Excel generated at: " + outputPath);
+    }
+}
+
+<!-- ============================================================
+ ========== src/main/java/com/example/dynamic/MessageTypeDetector.java
+============================================================ -->
+package com.example.dynamic;
+
+import java.io.*;
+import java.nio.file.*;
+
+public class MessageTypeDetector {
+    public static String detectMessageType(String filePath) throws IOException {
+        String content = new String(Files.readAllBytes(Paths.get(filePath))).trim();
+        if (content.startsWith("<")) {
+            return "XML";
+        } else {
+            return "FIXED";
+        }
+    }
+}
+
+<!-- ============================================================
+ ========== src/main/java/com/example/dynamic/InputMappingGenerator.java
+============================================================ -->
+package com.example.dynamic;
+
+import java.util.*;
+
+public class InputMappingGenerator {
+    public static List<InputMappingRow> generateMapping(String filePath, String type) throws Exception {
+        if ("XML".equalsIgnoreCase(type)) {
+            return XMLUtils.generateXmlMapping(filePath);
+        } else {
+            return FixedLengthUtils.generateFixedLengthMapping(filePath);
+        }
+    }
+}
+
+<!-- ============================================================
+ ========== src/main/java/com/example/dynamic/TestCaseGenerator.java
+============================================================ -->
+package com.example.dynamic;
+
+import java.util.*;
+
+public class TestCaseGenerator {
+    public static List<TestCaseRow> generatePositiveCases(List<InputMappingRow> mapping) {
+        List<TestCaseRow> cases = new ArrayList<>();
+        for (InputMappingRow row : mapping) {
+            TestCaseRow tc = new TestCaseRow();
+            tc.setTestCaseId("TC_POS_" + row.getFieldName());
+            tc.setFieldName(row.getFieldName());
+            tc.setDescription("Verify field " + row.getFieldName() + " with valid data");
+            tc.setInputValue("VALID_" + row.getFieldName());
+            tc.setExpectedResult("Accepted");
+            cases.add(tc);
+        }
+        return cases;
+    }
+}
+
+<!-- ============================================================
+ ========== src/main/java/com/example/dynamic/NegativeTestGenerator.java
+============================================================ -->
+package com.example.dynamic;
+
+import java.util.*;
+
+public class NegativeTestGenerator {
+    public static List<TestCaseRow> generateNegativeCases(List<InputMappingRow> mapping) {
+        List<TestCaseRow> cases = new ArrayList<>();
+        for (InputMappingRow row : mapping) {
+            TestCaseRow tc = new TestCaseRow();
+            tc.setTestCaseId("TC_NEG_" + row.getFieldName());
+            tc.setFieldName(row.getFieldName());
+            tc.setDescription("Verify field " + row.getFieldName() + " with invalid data");
+            tc.setInputValue("INVALID_" + row.getFieldName());
+            tc.setExpectedResult("Rejected");
+            cases.add(tc);
+        }
+        return cases;
+    }
+}
+
+<!-- ============================================================
+ ========== src/main/java/com/example/dynamic/ExcelWriter.java
+============================================================ -->
+package com.example.dynamic;
+
+import java.io.*;
+import java.util.*;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.*;
+
+public class ExcelWriter {
+    public static void writeExcel(List<InputMappingRow> mapping, List<TestCaseRow> testCases, String outputFile) throws IOException {
+        XSSFWorkbook workbook = new XSSFWorkbook();
+
+        // Input Mapping sheet
+        XSSFSheet mappingSheet = workbook.createSheet("InputMapping");
+        Row headerRow = mappingSheet.createRow(0);
+        String[] mappingHeaders = {"FieldName", "XPath/Position", "Length"};
+        for (int i = 0; i < mappingHeaders.length; i++) {
+            headerRow.createCell(i).setCellValue(mappingHeaders[i]);
+        }
+        int rowIdx = 1;
+        for (InputMappingRow row : mapping) {
+            Row r = mappingSheet.createRow(rowIdx++);
+            r.createCell(0).setCellValue(row.getFieldName());
+            r.createCell(1).setCellValue(row.getPosition());
+            r.createCell(2).setCellValue(row.getLength());
+        }
+
+        // Test Cases sheet
+        XSSFSheet tcSheet = workbook.createSheet("TestCases");
+        Row tcHeader = tcSheet.createRow(0);
+        String[] tcHeaders = {"TestCaseID", "FieldName", "Description", "InputValue", "ExpectedResult"};
+        for (int i = 0; i < tcHeaders.length; i++) {
+            tcHeader.createCell(i).setCellValue(tcHeaders[i]);
+        }
+        rowIdx = 1;
+        for (TestCaseRow tc : testCases) {
+            Row r = tcSheet.createRow(rowIdx++);
+            r.createCell(0).setCellValue(tc.getTestCaseId());
+            r.createCell(1).setCellValue(tc.getFieldName());
+            r.createCell(2).setCellValue(tc.getDescription());
+            r.createCell(3).setCellValue(tc.getInputValue());
+            r.createCell(4).setCellValue(tc.getExpectedResult());
+        }
+
+        try (FileOutputStream fos = new FileOutputStream(outputFile)) {
+            workbook.write(fos);
+        }
+        workbook.close();
+    }
+}
+
+<!-- ============================================================
+ ========== src/main/java/com/example/dynamic/XMLUtils.java
+============================================================ -->
+package com.example.dynamic;
+
+import java.io.*;
+import java.util.*;
+import javax.xml.parsers.*;
+import org.w3c.dom.*;
+
+public class XMLUtils {
+    public static List<InputMappingRow> generateXmlMapping(String filePath) throws Exception {
+        List<InputMappingRow> rows = new ArrayList<>();
+
+        File xmlFile = new File(filePath);
+        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+        DocumentBuilder db = dbf.newDocumentBuilder();
+        Document doc = db.parse(xmlFile);
+        doc.getDocumentElement().normalize();
+
+        Node root = doc.getDocumentElement();
+        traverseXml(root, "/" + root.getNodeName(), rows);
+        return rows;
+    }
+
+    private static void traverseXml(Node node, String path, List<InputMappingRow> rows) {
+        if (node.getNodeType() == Node.ELEMENT_NODE) {
+            NodeList children = node.getChildNodes();
+            boolean hasElementChild = false;
+            for (int i = 0; i < children.getLength(); i++) {
+                if (children.item(i).getNodeType() == Node.ELEMENT_NODE) {
+                    hasElementChild = true;
+                }
+            }
+            if (!hasElementChild) {
+                rows.add(new InputMappingRow(node.getNodeName(), path, 0));
+            } else {
+                for (int i = 0; i < children.getLength(); i++) {
+                    traverseXml(children.item(i), path + "/" + children.item(i).getNodeName(), rows);
+                }
+            }
+        }
+    }
+}
+
+<!-- ============================================================
+ ========== src/main/java/com/example/dynamic/FixedLengthUtils.java
+============================================================ -->
+package com.example.dynamic;
+
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+
+public class FixedLengthUtils {
+    public static List<InputMappingRow> generateFixedLengthMapping(String filePath) throws IOException {
+        List<InputMappingRow> rows = new ArrayList<>();
+        List<String> lines = Files.readAllLines(Paths.get(filePath));
+
+        if (!lines.isEmpty()) {
+            String firstLine = lines.get(0);
+            String[] fields = firstLine.trim().split("\\s+");
+
+            int pos = 0;
+            for (String f : fields) {
+                int length = f.length();
+                rows.add(new InputMappingRow("Field" + (pos + 1), "Pos:" + pos, length));
+                pos += length + 1;
+            }
+        }
+        return rows;
+    }
+}
+
+<!-- ============================================================
+ ========== src/main/java/com/example/dynamic/InputMappingRow.java
+============================================================ -->
+package com.example.dynamic;
+
+public class InputMappingRow {
+    private String fieldName;
+    private String position;
+    private int length;
+
+    public InputMappingRow(String fieldName, String position, int length) {
+        this.fieldName = fieldName;
+        this.position = position;
+        this.length = length;
+    }
+
+    public String getFieldName() { return fieldName; }
+    public String getPosition() { return position; }
+    public int getLength() { return length; }
+}
+
+<!-- ============================================================
+ ========== src/main/java/com/example/dynamic/TestCaseRow.java
+============================================================ -->
+package com.example.dynamic;
+
+public class TestCaseRow {
+    private String testCaseId;
+    private String fieldName;
+    private String description;
+    private String inputValue;
+    private String expectedResult;
+
+    public String getTestCaseId() { return testCaseId; }
+    public void setTestCaseId(String testCaseId) { this.testCaseId = testCaseId; }
+
+    public String getFieldName() { return fieldName; }
+    public void setFieldName(String fieldName) { this.fieldName = fieldName; }
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+
+    public String getInputValue() { return inputValue; }
+    public void setInputValue(String inputValue) { this.inputValue = inputValue; }
+
+    public String getExpectedResult() { return expectedResult; }
+    public void setExpectedResult(String expectedResult) { this.expectedResult = expectedResult; }
+}
+
+<!-- ============================================================
+ ========== src/test/resources/sample.xml
+============================================================ -->
+<Order>
+    <OrderId>123</OrderId>
+    <Customer>
+        <Name>John Doe</Name>
+        <Email>john@example.com</Email>
+    </Customer>
+    <Amount>500</Amount>
+</Order>
+
+<!-- ============================================================
+ ========== src/test/resources/sample.fixed
+============================================================ -->
+12345   John    Doe     500
